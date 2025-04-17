@@ -1,4 +1,14 @@
 import streamlit as st
+
+# ⚠️ set_page_config deve ser a primeira chamada do script!
+st.set_page_config(
+    page_title="📑 Analisador de Regulamentos Pro",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Importações após o set_page_config
 import os
 import io
 import hashlib
@@ -10,18 +20,10 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains.question_answering import load_qa_chain
 from dotenv import load_dotenv
 
-# Configuração da página (deve ser a primeira chamada do Streamlit)
-st.set_page_config(
-    page_title="📑 Analisador de Regulamentos Pro",
-    page_icon="📄",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 # Carrega variáveis de ambiente
 load_dotenv()
 
-# Classe de análise de documentos
+# Classe de análise
 class DocumentAnalyzer:
     def __init__(self):
         self.embeddings = OpenAIEmbeddings()
@@ -42,53 +44,40 @@ class DocumentAnalyzer:
         docs = vectorstore.similarity_search(question)
         return chain.run(input_documents=docs, question=question)
 
-# Inicialização do estado
-if "vectorstore" not in st.session_state:
-    st.session_state.vectorstore = None
-if "current_file_hash" not in st.session_state:
-    st.session_state.current_file_hash = None
-if "current_file" not in st.session_state:
-    st.session_state.current_file = None
-if "page_count" not in st.session_state:
-    st.session_state.page_count = 0
-if "chunk_count" not in st.session_state:
-    st.session_state.chunk_count = 0
+# Inicializa estados
+for key in ["vectorstore", "current_file_hash", "current_file", "page_count", "chunk_count"]:
+    if key not in st.session_state:
+        st.session_state[key] = None if key != "page_count" and key != "chunk_count" else 0
 
 st.title("📑 Analisador de Regulamentos CMB")
 st.markdown("Envie um arquivo PDF com o regulamento e comece a fazer perguntas sobre ele.")
 
-# Upload do arquivo
 uploaded_file = st.file_uploader("Envie um arquivo PDF", type="pdf")
-
 analyzer = DocumentAnalyzer()
 
 if uploaded_file:
     uploaded_bytes = uploaded_file.read()
     current_file_hash = hashlib.sha256(uploaded_bytes).hexdigest()
 
-    # Se for um novo arquivo
-    if current_file_hash != st.session_state.get("current_file_hash"):
+    if current_file_hash != st.session_state.current_file_hash:
         with st.spinner("Processando documento..."):
             pdf_reader = PdfReader(io.BytesIO(uploaded_bytes))
-            text = ""
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
+            text = "".join(page.extract_text() + "\n" for page in pdf_reader.pages)
             chunks = analyzer._split_text(text)
             vectorstore = analyzer._generate_embeddings(chunks)
 
+            # Atualiza sessão
             st.session_state.vectorstore = vectorstore
             st.session_state.current_file_hash = current_file_hash
             st.session_state.current_file = uploaded_file.name
             st.session_state.page_count = len(pdf_reader.pages)
             st.session_state.chunk_count = len(chunks)
 
-# Exibe informações do arquivo
 if st.session_state.vectorstore:
     st.success(f"📄 Documento processado com sucesso: {st.session_state.current_file}")
     st.write(f"🔢 Total de páginas: {st.session_state.page_count}")
     st.write(f"📚 Total de trechos (chunks): {st.session_state.chunk_count}")
 
-    # Área de perguntas
     st.markdown("### ❓ Faça uma pergunta sobre o regulamento:")
     question = st.text_input("Digite sua pergunta:")
 
