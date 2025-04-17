@@ -14,46 +14,50 @@ from langchain.prompts import PromptTemplate
 import google.generativeai as genai
 
 # =============================================
-# SOLUÇÃO DEFINITIVA - APPROACH RADICAL
+# CONFIGURAÇÃO DA PÁGINA (DEVE SER O PRIMEIRO COMANDO STREAMLIT)
 # =============================================
+st.set_page_config(
+    page_title="📑 Analisador de Regulamentos Pro",
+    page_icon="📑",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-def setup_page():
-    """Configuração segura da página com proteção contra erros de DOM"""
-    st.markdown("""
-    <script>
-    // Solução nuclear para erros de DOM
-    (function() {
-        // 1. Patch para removeChild
-        const originalRemoveChild = Node.prototype.removeChild;
-        Node.prototype.removeChild = function(child) {
-            if (!this.contains(child)) return child;
-            return originalRemoveChild.apply(this, arguments);
-        };
-        
-        // 2. Patch para operações de DOM
-        const originalInsertBefore = Node.prototype.insertBefore;
-        Node.prototype.insertBefore = function(newNode, refNode) {
-            if (!this.contains(refNode)) return newNode;
-            return originalInsertBefore.apply(this, arguments);
-        };
-        
-        console.log('DOM patches aplicados com sucesso');
-    })();
-    </script>
-    """, unsafe_allow_html=True)
+# =============================================
+# SOLUÇÃO PARA ERROS DE DOM (APÓS A CONFIGURAÇÃO DA PÁGINA)
+# =============================================
+st.markdown("""
+<script>
+// Patch definitivo para erros de DOM
+(function() {
+    // 1. Patch para removeChild
+    const originalRemoveChild = Node.prototype.removeChild;
+    Node.prototype.removeChild = function(child) {
+        if (!this.contains(child)) {
+            console.debug('[Streamlit Fix] Prevented removeChild error');
+            return child;
+        }
+        return originalRemoveChild.apply(this, arguments);
+    };
     
-    # Configuração da página após o patch
-    st.set_page_config(
-        page_title="📑 Analisador de Regulamentos Pro",
-        page_icon="📑",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    // 2. Patch para insertBefore
+    const originalInsertBefore = Node.prototype.insertBefore;
+    Node.prototype.insertBefore = function(newNode, refNode) {
+        if (refNode && !this.contains(refNode)) {
+            console.debug('[Streamlit Fix] Prevented insertBefore error');
+            return newNode;
+        }
+        return originalInsertBefore.apply(this, arguments);
+    };
+    
+    console.log('Todos os patches de DOM foram aplicados com sucesso');
+})();
+</script>
+""", unsafe_allow_html=True)
 
 # =============================================
-# CÓDIGO PRINCIPAL ATUALIZADO
+# CLASSE PRINCIPAL DO ANALISADOR
 # =============================================
-
 class DocumentAnalyzer:
     def __init__(self):
         self._init_session_state()
@@ -77,19 +81,19 @@ class DocumentAnalyzer:
         load_dotenv()
         self.api_key = os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            st.error("Chave API não encontrada no arquivo .env")
+            st.error("🔑 Chave da API não encontrada. Verifique seu arquivo .env")
             st.stop()
         
         try:
             genai.configure(api_key=self.api_key)
         except Exception as e:
-            st.error(f"Erro na configuração: {str(e)}")
+            st.error(f"❌ Falha na configuração: {str(e)}")
             st.stop()
     
     def _safe_rerun(self):
         """Recarrega a página com proteção contra erros"""
         try:
-            time.sleep(0.5)
+            time.sleep(0.3)
             st.rerun()
         except:
             pass
@@ -104,7 +108,7 @@ class DocumentAnalyzer:
     def process_pdf(self, file_path: str):
         """Processa o PDF com tratamento robusto de erros"""
         try:
-            with st.status("Processando documento...", expanded=True) as status:
+            with st.status("📄 Processando documento...", expanded=True) as status:
                 loader = PyPDFLoader(file_path)
                 pages = loader.load()
                 
@@ -123,14 +127,15 @@ class DocumentAnalyzer:
                 vectorstore = FAISS.from_documents(chunks, self._get_embeddings())
                 
                 status.update(
-                    label=f"Documento processado! (ID: {doc_hash[:12]}...)",
+                    label=f"✅ Documento processado! (ID: {doc_hash[:12]}...)",
                     state="complete",
                     expanded=False
                 )
                 
                 return vectorstore, doc_hash, len(pages), len(chunks)
         except Exception as e:
-            st.error(f"Falha no processamento: {str(e)}")
+            status.update(label="❌ Falha no processamento", state="error")
+            st.error(f"Erro no processamento: {str(e)}")
             return None, None, 0, 0
     
     def ask_question(self, question: str):
@@ -257,8 +262,15 @@ class DocumentAnalyzer:
                 
                 if st.session_state.show_response:
                     st.markdown(f"""
-                    <div style='padding:1.5rem; background:white; border-radius:12px; border-left:4px solid #0a5c0a; box-shadow:0 2px 8px rgba(0,0,0,0.05); margin-bottom:1rem;'>
-                        <h3 style='color:#6C63FF; margin-top:0;'>📝 Resposta</h3>
+                    <div style='
+                        padding: 1.5rem; 
+                        background: white; 
+                        border-radius: 12px; 
+                        border-left: 4px solid #0a5c0a; 
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+                        margin-bottom: 1rem;
+                    '>
+                        <h3 style='color: #6C63FF; margin-top: 0;'>📝 Resposta</h3>
                         {st.session_state.show_response}
                     </div>
                     """, unsafe_allow_html=True)
@@ -280,9 +292,14 @@ class DocumentAnalyzer:
             # Sidebar
             with st.sidebar:
                 st.markdown("""
-                <div style='padding:1rem; background:#0a5c0a; color:white; border-radius:12px;'>
-                    <h3 style='color:white;'>ℹ️ Como usar</h3>
-                    <ol style='padding-left:1rem;'>
+                <div style='
+                    padding: 1rem; 
+                    background: #0a5c0a; 
+                    color: white; 
+                    border-radius: 12px;
+                '>
+                    <h3 style='color: white !important;'>ℹ️ Como usar</h3>
+                    <ol style='padding-left: 1rem;'>
                         <li>Carregue um PDF regulatório</li>
                         <li>Espere o processamento</li>
                         <li>Faça perguntas sobre o conteúdo</li>
@@ -301,8 +318,14 @@ class DocumentAnalyzer:
                     for i, item in enumerate(reversed(st.session_state.history)):
                         with st.container():
                             st.markdown(f"""
-                            <div style='padding:0.5rem; margin-bottom:0.5rem; border-radius:8px; background:#f8f9fa; transition:all 0.2s;'>
-                                <div style='font-size:0.8rem; color:#6c757d;'>{item['timestamp']}</div>
+                            <div style='
+                                padding: 0.5rem;
+                                margin-bottom: 0.5rem;
+                                border-radius: 8px;
+                                background: #f8f9fa;
+                                transition: all 0.2s;
+                            '>
+                                <div style='font-size: 0.8rem; color: #6c757d;'>{item['timestamp']}</div>
                                 <p><strong>Pergunta:</strong> {item['question'][:60]}{'...' if len(item['question']) > 60 else ''}</p>
                             </div>
                             """, unsafe_allow_html=True)
@@ -322,6 +345,5 @@ class DocumentAnalyzer:
 # INICIALIZAÇÃO DA APLICAÇÃO
 # =============================================
 if __name__ == "__main__":
-    setup_page()
     analyzer = DocumentAnalyzer()
     analyzer.run()
