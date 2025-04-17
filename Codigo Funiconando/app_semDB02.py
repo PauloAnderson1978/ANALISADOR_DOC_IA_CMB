@@ -14,6 +14,27 @@ from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 import google.generativeai as genai
 
+import streamlit.components.v1 as components
+
+# Fix para o erro removeChild (deve vir antes de qualquer elemento Streamlit)
+components.html("""
+<script>
+// Sobrescreve o removeChild para prevenir erros
+const originalRemoveChild = Node.prototype.removeChild;
+Node.prototype.removeChild = function(child) {
+    try {
+        return originalRemoveChild.call(this, child);
+    } catch (e) {
+        if (e.toString().includes('removeChild')) {
+            console.log('Streamlit DOM workaround applied');
+            return child;
+        }
+        throw e;
+    }
+};
+</script>
+""", height=0, width=0)
+
 # --- Configuração da Página (DEVE SER O PRIMEIRO COMANDO) ---
 st.set_page_config(
     page_title="📑 Analisador de Regulamentos Pro",
