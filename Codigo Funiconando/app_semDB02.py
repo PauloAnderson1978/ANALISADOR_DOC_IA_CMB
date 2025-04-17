@@ -14,28 +14,49 @@ from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 import google.generativeai as genai
 
-import streamlit.components.v1 as components
+# =============================================
+# SOLUÇÃO DEFINITIVA PARA O ERRO removeChild
+# =============================================
+def inject_removechild_fix():
+    """Injeta o fix para o erro removeChild de forma robusta"""
+    components.html("""
+    <script>
+    (function() {
+        const patchRemoveChild = () => {
+            if (!window.removeChildPatched) {
+                const originalRemoveChild = Node.prototype.removeChild;
+                Node.prototype.removeChild = function(child) {
+                    if (!this.contains(child)) {
+                        console.debug('[Streamlit Fix] Prevented removeChild error');
+                        return child;
+                    }
+                    return originalRemoveChild.apply(this, arguments);
+                };
+                window.removeChildPatched = true;
+                console.log('[Streamlit Fix] removeChild patch applied');
+            }
+        };
+        
+        // Executa imediatamente
+        patchRemoveChild();
+        
+        // Reaplica após atualizações do Streamlit
+        const observer = new MutationObserver(patchRemoveChild);
+        observer.observe(document.body, { childList: true, subtree: true });
+        
+        // Proteção adicional para elementos dinâmicos
+        document.addEventListener('DOMContentLoaded', patchRemoveChild);
+        window.addEventListener('load', patchRemoveChild);
+    })();
+    </script>
+    """, height=0, width=0)
 
-# Fix para o erro removeChild (deve vir antes de qualquer elemento Streamlit)
-components.html("""
-<script>
-// Sobrescreve o removeChild para prevenir erros
-const originalRemoveChild = Node.prototype.removeChild;
-Node.prototype.removeChild = function(child) {
-    try {
-        return originalRemoveChild.call(this, child);
-    } catch (e) {
-        if (e.toString().includes('removeChild')) {
-            console.log('Streamlit DOM workaround applied');
-            return child;
-        }
-        throw e;
-    }
-};
-</script>
-""", height=0, width=0)
+# Aplica o fix ANTES de qualquer elemento Streamlit
+inject_removechild_fix()
 
-# --- Configuração da Página (DEVE SER O PRIMEIRO COMANDO) ---
+# =============================================
+# CONFIGURAÇÃO DA PÁGINA
+# =============================================
 st.set_page_config(
     page_title="📑 Analisador de Regulamentos Pro",
     page_icon="📑",
@@ -43,25 +64,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Fix para o erro 'removeChild' ---
-components.html("""
-<script>
-const originalRemoveChild = Node.prototype.removeChild;
-Node.prototype.removeChild = function(child) {
-    try {
-        return originalRemoveChild.call(this, child);
-    } catch (e) {
-        if (e.toString().includes('removeChild')) {
-            console.warn('Streamlit DOM workaround applied');
-            return child;
-        }
-        throw e;
-    }
-};
-</script>
-""", height=0, width=0)
-
-# --- Estilos CSS ---
+# =============================================
+# ESTILOS CSS
+# =============================================
 st.markdown("""
 <style>
     :root {
@@ -129,10 +134,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Carrega variáveis do .env ---
+# =============================================
+# CONFIGURAÇÃO INICIAL
+# =============================================
 load_dotenv()
-
-# --- Configuração Inicial ---
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
@@ -150,7 +155,9 @@ except Exception as e:
     st.error(f"❌ Falha na configuração: {str(e)}")
     st.stop()
 
-# --- Funções Auxiliares ---
+# =============================================
+# FUNÇÕES AUXILIARES
+# =============================================
 def reset_question_state():
     """Limpa a pergunta atual e resposta, mantendo o cache"""
     st.session_state.last_question = ""
@@ -219,7 +226,9 @@ def process_pdf(file_path: str, _api_key: str):
             st.error(f"Erro no processamento: {str(e)}")
             return None, None, 0, 0
 
-# --- Inicialização do Estado da Sessão ---
+# =============================================
+# INICIALIZAÇÃO DO ESTADO DA SESSÃO
+# =============================================
 if 'vectorstore' not in st.session_state:
     st.session_state.update({
         'vectorstore': None,
@@ -233,184 +242,202 @@ if 'vectorstore' not in st.session_state:
         'question_text': ""
     })
 
-# --- Interface Principal ---
+# =============================================
+# INTERFACE PRINCIPAL
+# =============================================
+def safe_rerun():
+    """Função segura para recarregar a página"""
+    try:
+        time.sleep(0.3)
+        st.rerun()
+    except:
+        pass
+
 def main():
-    st.title("📑 Analisador de Leis e Regulamentos")
-    st.markdown("Analise documentos regulatórios com IA. Carregue um PDF e faça perguntas sobre o conteúdo.")
-    
-    # Upload do arquivo
-    uploaded_file = st.file_uploader(
-        "📤 Carregar regulamento (PDF)",
-        type="pdf",
-        help="Envie um documento PDF para análise",
-        key="file_uploader"
-    )
-    
-    if uploaded_file and (st.session_state.current_file != uploaded_file.getvalue()):
-        st.session_state.current_file = uploaded_file.getvalue()
-        st.session_state.vectorstore = None
+    try:
+        st.title("📑 Analisador de Leis e Regulamentos")
+        st.markdown("Analise documentos regulatórios com IA. Carregue um PDF e faça perguntas sobre o conteúdo.")
         
-        if uploaded_file.size > 10_000_000:
-            st.warning("Arquivos acima de 10MB podem demorar mais para processar.")
+        # Upload do arquivo
+        uploaded_file = st.file_uploader(
+            "📤 Carregar regulamento (PDF)",
+            type="pdf",
+            help="Envie um documento PDF para análise",
+            key="file_uploader"
+        )
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(uploaded_file.getbuffer())
-            tmp_file_path = tmp_file.name
-        
-        vectorstore, doc_hash, page_count, chunk_count = process_pdf(tmp_file_path, api_key)
-        os.unlink(tmp_file_path)
-        
-        if vectorstore:
-            st.session_state.update({
-                'vectorstore': vectorstore,
-                'doc_hash': doc_hash,
-                'page_count': page_count,
-                'chunk_count': chunk_count
-            })
+        if uploaded_file and (st.session_state.current_file != uploaded_file.getvalue()):
+            st.session_state.current_file = uploaded_file.getvalue()
+            st.session_state.vectorstore = None
             
-            with st.expander("📊 Resumo do documento"):
-                col1, col2 = st.columns(2)
-                col1.metric("Páginas", page_count)
-                col2.metric("Trechos", chunk_count)
-                st.caption(f"ID do documento: {doc_hash[:24]}...")
-    
-    if st.session_state.vectorstore:
-        st.markdown("---")
-        
-        with st.form(key='question_form'):
-            question = st.text_input(
-                "💡 Faça sua pergunta sobre o regulamento:",
-                value=st.session_state.question_text,
-                placeholder="Ex: Quais são os requisitos para aprovação?",
-                key="question_input"
-            )
+            if uploaded_file.size > 10_000_000:
+                st.warning("Arquivos acima de 10MB podem demorar mais para processar.")
             
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                submit_button = st.form_submit_button(
-                    "🔍 Analisar",
-                    type="primary",
-                    use_container_width=True
-                )
-            with col2:
-                new_question_button = st.form_submit_button(
-                    "🔄 Nova Pergunta",
-                    on_click=reset_question_state,
-                    use_container_width=True
-                )
-        
-        if submit_button and question:
-            with st.spinner("🤖 Analisando pergunta..."):
-                try:
-                    time.sleep(0.3)
-                    
-                    prompt_template = """
-                    Você é um especialista em análise de documentos regulatórios. 
-                    Responda em português (Brasil) com tom profissional.
-                    
-                    Contexto:
-                    {context}
-                    
-                    Pergunta:
-                    {question}
-                    
-                    Instruções:
-                    - Formate a resposta com Markdown
-                    - Destaque artigos/seções com `código`
-                    - Use **negrito** para pontos importantes
-                    - Se não souber, diga "Não encontrado no documento"
-                    """
-                    
-                    prompt = PromptTemplate(
-                        template=prompt_template,
-                        input_variables=["context", "question"]
-                    )
-                    
-                    qa_chain = RetrievalQA.from_chain_type(
-                        llm=ChatGoogleGenerativeAI(
-                            model="gemini-1.5-pro-latest",
-                            temperature=0.3,
-                            google_api_key=api_key
-                        ),
-                        chain_type="stuff",
-                        retriever=st.session_state.vectorstore.as_retriever(),
-                        chain_type_kwargs={"prompt": prompt}
-                    )
-                    
-                    result = qa_chain({"query": question})
-                    
-                    if result and 'result' in result:
-                        st.session_state.last_question = question
-                        st.session_state.show_response = result['result']
-                        st.session_state.question_text = ""
-                        
-                        add_to_history(question, result['result'])
-                        time.sleep(0.2)
-                        st.rerun()
-                    else:
-                        st.error("Não foi possível obter uma resposta.")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_file.write(uploaded_file.getbuffer())
+                tmp_file_path = tmp_file.name
+            
+            vectorstore, doc_hash, page_count, chunk_count = process_pdf(tmp_file_path, api_key)
+            os.unlink(tmp_file_path)
+            
+            if vectorstore:
+                st.session_state.update({
+                    'vectorstore': vectorstore,
+                    'doc_hash': doc_hash,
+                    'page_count': page_count,
+                    'chunk_count': chunk_count
+                })
                 
-                except Exception as e:
-                    st.error(f"Ocorreu um erro durante a análise: {str(e)}")
+                with st.expander("📊 Resumo do documento"):
+                    col1, col2 = st.columns(2)
+                    col1.metric("Páginas", page_count)
+                    col2.metric("Trechos", chunk_count)
+                    st.caption(f"ID do documento: {doc_hash[:24]}...")
         
-        if st.session_state.show_response:
-            st.markdown(f"""
-            <div class="response-box">
-                <h3 style='color: #6C63FF; margin-top: 0;'>📝 Resposta</h3>
-                {st.session_state.show_response}
+        if st.session_state.vectorstore:
+            st.markdown("---")
+            
+            with st.form(key='question_form'):
+                question = st.text_input(
+                    "💡 Faça sua pergunta sobre o regulamento:",
+                    value=st.session_state.question_text,
+                    placeholder="Ex: Quais são os requisitos para aprovação?",
+                    key="question_input"
+                )
+                
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    submit_button = st.form_submit_button(
+                        "🔍 Analisar",
+                        type="primary",
+                        use_container_width=True
+                    )
+                with col2:
+                    new_question_button = st.form_submit_button(
+                        "🔄 Nova Pergunta",
+                        on_click=reset_question_state,
+                        use_container_width=True
+                    )
+            
+            if submit_button and question:
+                with st.spinner("🤖 Analisando pergunta..."):
+                    try:
+                        time.sleep(0.3)
+                        
+                        prompt_template = """
+                        Você é um especialista em análise de documentos regulatórios. 
+                        Responda em português (Brasil) com tom profissional.
+                        
+                        Contexto:
+                        {context}
+                        
+                        Pergunta:
+                        {question}
+                        
+                        Instruções:
+                        - Formate a resposta com Markdown
+                        - Destaque artigos/seções com `código`
+                        - Use **negrito** para pontos importantes
+                        - Se não souber, diga "Não encontrado no documento"
+                        """
+                        
+                        prompt = PromptTemplate(
+                            template=prompt_template,
+                            input_variables=["context", "question"]
+                        )
+                        
+                        qa_chain = RetrievalQA.from_chain_type(
+                            llm=ChatGoogleGenerativeAI(
+                                model="gemini-1.5-pro-latest",
+                                temperature=0.3,
+                                google_api_key=api_key
+                            ),
+                            chain_type="stuff",
+                            retriever=st.session_state.vectorstore.as_retriever(),
+                            chain_type_kwargs={"prompt": prompt}
+                        )
+                        
+                        result = qa_chain({"query": question})
+                        
+                        if result and 'result' in result:
+                            st.session_state.last_question = question
+                            st.session_state.show_response = result['result']
+                            st.session_state.question_text = ""
+                            
+                            add_to_history(question, result['result'])
+                            safe_rerun()
+                        else:
+                            st.error("Não foi possível obter uma resposta.")
+                    
+                    except Exception as e:
+                        if "removeChild" in str(e):
+                            safe_rerun()
+                        else:
+                            st.error(f"Ocorreu um erro durante a análise: {str(e)}")
+            
+            if st.session_state.show_response:
+                st.markdown(f"""
+                <div class="response-box">
+                    <h3 style='color: #6C63FF; margin-top: 0;'>📝 Resposta</h3>
+                    {st.session_state.show_response}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button("❌ Limpar Resposta"):
+                    reset_question_state()
+                    safe_rerun()
+                
+                st.subheader("🔍 Trechos de referência")
+                docs = st.session_state.vectorstore.similarity_search(
+                    st.session_state.last_question, 
+                    k=3
+                )
+                
+                for i, doc in enumerate(docs):
+                    with st.expander(f"Trecho {i+1} (Página {doc.metadata.get('page', 'N/A')})"):
+                        st.write(doc.page_content)
+        
+        # Sidebar
+        with st.sidebar:
+            st.markdown("""
+            <div style='padding: 1rem; background-color: #0a5c0a; color: white; border-radius: 12px;'>
+                <h3 style='color: white !important;'>ℹ️ Como usar</h3>
+                <ol style='padding-left: 1rem;'>
+                    <li>Carregue um PDF regulatório</li>
+                    <li>Espere o processamento</li>
+                    <li>Faça perguntas sobre o conteúdo</li>
+                </ol>
             </div>
             """, unsafe_allow_html=True)
             
-            if st.button("❌ Limpar Resposta"):
-                reset_question_state()
-                st.rerun()
+            st.markdown("---")
+            st.subheader("📚 Histórico (Últimas 5)")
             
-            st.subheader("🔍 Trechos de referência")
-            docs = st.session_state.vectorstore.similarity_search(
-                st.session_state.last_question, 
-                k=3
-            )
+            if st.button("🧹 Limpar Todo o Histórico", use_container_width=True):
+                clear_history()
             
-            for i, doc in enumerate(docs):
-                with st.expander(f"Trecho {i+1} (Página {doc.metadata.get('page', 'N/A')})"):
-                    st.write(doc.page_content)
+            if st.session_state.history:
+                for i, item in enumerate(reversed(st.session_state.history)):
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="history-item">
+                            <div class="history-timestamp">{item['timestamp']}</div>
+                            <p><strong>Pergunta:</strong> {item['question'][:60]}{'...' if len(item['question']) > 60 else ''}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button(f"Ver resposta", key=f"view_{i}"):
+                            st.session_state.show_response = item['answer']
+                            st.session_state.last_question = item['question']
+                            safe_rerun()
+            else:
+                st.caption("Nenhuma pergunta no histórico")
     
-    # Sidebar
-    with st.sidebar:
-        st.markdown("""
-        <div style='padding: 1rem; background-color: #0a5c0a; color: white; border-radius: 12px;'>
-            <h3 style='color: white !important;'>ℹ️ Como usar</h3>
-            <ol style='padding-left: 1rem;'>
-                <li>Carregue um PDF regulatório</li>
-                <li>Espere o processamento</li>
-                <li>Faça perguntas sobre o conteúdo</li>
-            </ol>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        st.subheader("📚 Histórico (Últimas 5)")
-        
-        if st.button("🧹 Limpar Todo o Histórico", use_container_width=True):
-            clear_history()
-        
-        if st.session_state.history:
-            for i, item in enumerate(reversed(st.session_state.history)):
-                with st.container():
-                    st.markdown(f"""
-                    <div class="history-item">
-                        <div class="history-timestamp">{item['timestamp']}</div>
-                        <p><strong>Pergunta:</strong> {item['question'][:60]}{'...' if len(item['question']) > 60 else ''}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if st.button(f"Ver resposta", key=f"view_{i}"):
-                        st.session_state.show_response = item['answer']
-                        st.session_state.last_question = item['question']
-                        time.sleep(0.2)
-                        st.rerun()
+    except Exception as e:
+        if "removeChild" in str(e):
+            safe_rerun()
         else:
-            st.caption("Nenhuma pergunta no histórico")
+            st.error(f"Erro crítico: {str(e)}")
 
 if __name__ == "__main__":
     main()
