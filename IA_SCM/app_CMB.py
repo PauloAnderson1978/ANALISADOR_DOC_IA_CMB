@@ -177,13 +177,11 @@ st.markdown("""
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
+# Substitua diretamente pela sua chave (apenas para teste)
+api_key = "AIzaSyBbsk2Xt4ANNPxZOXcAfBlWXEsZd_DpZmU"
+
 if not api_key:
-    st.error("""
-    🔑 Chave da API não encontrada. Verifique se:
-    1. O arquivo `.env` está na mesma pasta do seu script
-    2. Contém exatamente: GEMINI_API_KEY=AIzaSyBbsk2Xt4ANNPxZOXcAfBlWXEsZd_DpZmU
-    3. O nome do arquivo é EXATAMENTE `.env` (sem extensão .txt)
-    """)
+    st.error("Chave da API não configurada")
     st.stop()
 
 try:
